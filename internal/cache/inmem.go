@@ -14,7 +14,7 @@ var ErrNotFound = errors.New("key not found")
 
 // InMem in-memory cache
 type InMem struct {
-	mu   *sync.Mutex
+	mu   *sync.RWMutex
 	data *data
 }
 
@@ -26,7 +26,7 @@ type data struct {
 // New returns new in-memory cache
 func New() *InMem {
 	return &InMem{
-		mu: new(sync.Mutex),
+		mu: new(sync.RWMutex),
 		data: &data{
 			Index: new(btree),
 			KV:    make(map[string]string),
@@ -36,8 +36,8 @@ func New() *InMem {
 
 // Get returns value by key
 func (m *InMem) Get(key string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if v, ok := m.data.KV[key]; ok {
 		return v, nil
