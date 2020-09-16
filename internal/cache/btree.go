@@ -33,7 +33,7 @@ func (b *btree) removeNodesLessThan(k int64) map[string]struct{} {
 	}
 
 	fakeParent := &node{Right: b.Root}
-	rm := b.Root.removeNodesOlderThan(k, fakeParent)
+	rm := b.Root.removeNodesLessThan(k, fakeParent)
 	b.Root = fakeParent.Right
 
 	var nodes []*node
@@ -51,6 +51,7 @@ func (b *btree) traverse(n *node, f func(*node)) {
 	if n == nil {
 		return
 	}
+
 	b.traverse(n.Left, f)
 	f(n)
 	b.traverse(n.Right, f)
@@ -79,6 +80,7 @@ func (n *node) insert(newNode *node) {
 			n.Left = newNode
 			return
 		}
+
 		n.Left.insert(newNode)
 		return
 	}
@@ -88,6 +90,7 @@ func (n *node) insert(newNode *node) {
 			n.Right = newNode
 			return
 		}
+
 		n.Right.insert(newNode)
 		return
 	}
@@ -99,29 +102,29 @@ func (n *node) insert(newNode *node) {
 	}
 }
 
-func (n *node) removeNodesOlderThan(k int64, parent *node) map[string]struct{} {
+func (n *node) removeNodesLessThan(k int64, parent *node) map[string]struct{} {
 	if n == nil {
 		return nil
 	}
 
 	if k < n.Key {
-		return n.Left.removeNodesOlderThan(k, n)
+		return n.Left.removeNodesLessThan(k, n)
 	}
 
 	keys := make(map[string]struct{})
-	for k := range n.Values {
-		keys[k] = struct{}{}
+	for key := range n.Values {
+		keys[key] = struct{}{}
 	}
 
 	if n.Left != nil {
-		for k := range n.Left.removeNodesOlderThan(k, n) {
-			keys[k] = struct{}{}
+		for key := range n.Left.removeNodesLessThan(k, n) {
+			keys[key] = struct{}{}
 		}
 	}
 
 	if n.Right != nil {
-		for k := range n.Right.removeNodesOlderThan(k, n) {
-			keys[k] = struct{}{}
+		for key := range n.Right.removeNodesLessThan(k, n) {
+			keys[key] = struct{}{}
 		}
 	}
 

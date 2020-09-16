@@ -1,5 +1,5 @@
-module probe
+module github.com/i-sevostyanov/chached
 
-go 1.13
+go 1.15
 
-require golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
+require golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208

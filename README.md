@@ -1,14 +1,15 @@
-## Probe
-Is in-memory cache server with simple text-based protocol.
+## Cached
+Is an in-memory cache server with a simple text-based protocol.
 
 ### Features
-* TTL per key
+* TTL per key (based on BTree index)
 * Dump and Restore from disk
 * Thread-safety
 * Commands:
     * `set <key> <value> <ttl>`
     * `get <key>`
     * `del <key>`
+    * `stats`
     * `quit`
 
 ### Why?
@@ -39,10 +40,14 @@ del mykey
 OK
 ```
 
+Show stats:
+```bash
+stats
+Hit: 865, Miss: 24, Size: 853
+```
+
 ### ToDo
 * Tests and benchmarks
 * Metrics
 * Dump and restore without reflection
 * Build in GitHub Actions
-
-

@@ -3,11 +3,14 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/i-sevostyanov/chached/internal/protocol"
 )
 
 const (
@@ -15,28 +18,23 @@ const (
 	connReadDeadline = 10 * time.Second
 )
 
-// Cache cache interface that used by the server
-type Cache interface {
-	Get(key string) (string, error)
-	Set(key, value string, ttl time.Duration)
-	Delete(key string)
+type Protocol interface {
+	Exec(command string) (string, error)
 }
 
 // Server TCP server
 type Server struct {
 	address  string
 	logger   *log.Logger
-	protocol *protocol
+	protocol Protocol
 }
 
 // New returns new TCP server
-func New(addr string, cache Cache, logger *log.Logger) *Server {
+func New(addr string, protocol Protocol, logger *log.Logger) *Server {
 	return &Server{
-		address: addr,
-		logger:  logger,
-		protocol: &protocol{
-			cache: cache,
-		},
+		address:  addr,
+		logger:   logger,
+		protocol: protocol,
 	}
 }
 
@@ -44,12 +42,12 @@ func New(addr string, cache Cache, logger *log.Logger) *Server {
 func (s *Server) Listen(ctx context.Context) error {
 	addr, err := net.ResolveTCPAddr("tcp", s.address)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to resolve address: %w", err)
 	}
 
-	l, err := net.ListenTCP("tcp", addr)
+	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start tcp server: %w", err)
 	}
 
 	wg := new(sync.WaitGroup)
@@ -57,7 +55,7 @@ func (s *Server) Listen(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			if err := l.Close(); err != nil {
+			if err = listener.Close(); err != nil {
 				s.logger.Printf("Failed to close listener: %v", err)
 			}
 			wg.Wait()
@@ -65,12 +63,12 @@ func (s *Server) Listen(ctx context.Context) error {
 		default:
 		}
 
-		if err := l.SetDeadline(time.Now().Add(listenerDeadline)); err != nil {
+		if err = listener.SetDeadline(time.Now().Add(listenerDeadline)); err != nil {
 			s.logger.Printf("Failed to set listener deadline: %v", err)
 			continue
 		}
 
-		conn, err := l.Accept()
+		conn, err := listener.Accept()
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			continue
 		}
@@ -95,10 +93,14 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			s.logger.Printf("Failed to close conn: %v", err)
 		}
 	}()
+
+	reader := bufio.NewReader(conn)
+
+loop:
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			break loop
 		default:
 		}
 
@@ -107,7 +109,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			continue
 		}
 
-		message, err := bufio.NewReader(conn).ReadString('\n')
+		command, err := reader.ReadString('\n')
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			continue
 		}
@@ -116,11 +118,8 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			break
 		}
 
-		message = strings.TrimSpace(message)
-		params := strings.Fields(message)
-
-		repl, err := s.protocol.exec(params)
-		if err == errQuit {
+		repl, err := s.protocol.Exec(command)
+		if errors.Is(err, protocol.ErrQuit) {
 			break
 		}
 		if err != nil {
@@ -131,10 +130,11 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		}
 
 		if repl != "" {
-			if _, err := conn.Write([]byte(repl + "\n")); err != nil {
+			if _, err = conn.Write([]byte(repl + "\n")); err != nil {
 				s.logger.Printf("Failed to write reply: %v", err)
 			}
 		}
 	}
+
 	s.logger.Printf("Client %s disconnected", conn.RemoteAddr().String())
 }

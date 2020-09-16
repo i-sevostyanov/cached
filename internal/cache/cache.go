@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,22 +15,32 @@ var ErrNotFound = errors.New("key not found")
 
 // InMem in-memory cache
 type InMem struct {
-	mu   *sync.RWMutex
-	data *data
+	mu    sync.RWMutex
+	data  data
+	stats stats
 }
 
 type data struct {
-	Index *btree
+	Index btree
 	KV    map[string]string
+}
+
+type stats struct {
+	miss int64
+	hit  int64
 }
 
 // New returns new in-memory cache
 func New() *InMem {
 	return &InMem{
-		mu: new(sync.RWMutex),
-		data: &data{
-			Index: new(btree),
+		mu: sync.RWMutex{},
+		data: data{
+			Index: btree{},
 			KV:    make(map[string]string),
+		},
+		stats: stats{
+			miss: 0,
+			hit:  0,
 		},
 	}
 }
@@ -40,9 +51,11 @@ func (m *InMem) Get(key string) (string, error) {
 	defer m.mu.RUnlock()
 
 	if v, ok := m.data.KV[key]; ok {
+		atomic.AddInt64(&m.stats.hit, 1)
 		return v, nil
 	}
 
+	atomic.AddInt64(&m.stats.miss, 1)
 	return "", ErrNotFound
 }
 
@@ -62,6 +75,17 @@ func (m *InMem) Delete(key string) {
 	defer m.mu.Unlock()
 
 	m.delete(key)
+}
+
+// Stats returns hits, misses and cache size
+func (m *InMem) Stats() (int64, int64, int64) {
+	m.mu.RLock()
+	hit := m.stats.hit
+	miss := m.stats.miss
+	size := int64(len(m.data.KV))
+	m.mu.RUnlock()
+
+	return hit, miss, size
 }
 
 // Eviction starts the process of removing keys whose life has come to an end
@@ -98,7 +122,7 @@ func (m *InMem) Restore(r io.Reader) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return gob.NewDecoder(r).Decode(m.data)
+	return gob.NewDecoder(r).Decode(&m.data)
 }
 
 func (m *InMem) delete(key string) {

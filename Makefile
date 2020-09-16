@@ -1,15 +1,18 @@
-.PHONY: build lint test vendor
+.PHONY: build lint test vendor run
 
 default: build
 
 build:
-	go build -mod=vendor -o build/probe -ldflags "-s -w" cmd/main.go
+	@go build -mod=vendor -o build/cached -ldflags "-s -w" cmd/main.go
 
 lint:
-	golangci-lint run
+	@golangci-lint run
 
 test:
-	go test ./...
+	@go test ./...
 
 vendor:
-	go mod tidy && go mod vendor
+	@go mod tidy && go mod vendor
+
+run:
+	@go run cmd/main.go

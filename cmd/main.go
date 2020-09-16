@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,8 +13,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"probe/internal/cache"
-	"probe/internal/server"
+	"github.com/i-sevostyanov/chached/internal/cache"
+	"github.com/i-sevostyanov/chached/internal/protocol"
+	"github.com/i-sevostyanov/chached/internal/server"
 )
 
 var errCanceled = errors.New("canceled")
@@ -30,13 +32,9 @@ func main() {
 	if err != nil {
 		logger.Fatalf("Failed to open file: %v", err)
 	}
-	defer func() {
-		if err = file.Close(); err != nil {
-			logger.Printf("Failed to close file: %v", err)
-		}
-	}()
 
 	inMemCache := cache.New()
+	cacheProtocol := protocol.New(inMemCache)
 
 	if err = inMemCache.Restore(file); err != nil {
 		logger.Printf("Warning. Failed to restore cache: %v", err)
@@ -45,7 +43,7 @@ func main() {
 	gr, ctx := errgroup.WithContext(context.Background())
 
 	gr.Go(func() error {
-		return server.New(*address, inMemCache, logger).Listen(ctx)
+		return server.New(*address, cacheProtocol, logger).Listen(ctx)
 	})
 
 	gr.Go(func() error {
@@ -56,6 +54,8 @@ func main() {
 	gr.Go(func() error {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(signals)
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -67,15 +67,23 @@ func main() {
 		}
 	})
 
-	if err = gr.Wait(); err != nil && err != errCanceled {
+	if err = gr.Wait(); err != nil && !errors.Is(err, errCanceled) {
 		logger.Fatalf("Failed to start: %v", err)
 	}
 
-	if err := file.Truncate(0); err != nil {
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		logger.Fatalf("Failed to set offset: %v", err)
+	}
+
+	if err = file.Truncate(0); err != nil {
 		logger.Fatalf("Failed to truncate file: %v", err)
 	}
 
-	if err := inMemCache.Dump(file); err != nil {
+	if err = inMemCache.Dump(file); err != nil {
 		logger.Fatalf("Failed to dump cache: %v", err)
+	}
+
+	if err = file.Close(); err != nil {
+		logger.Fatalf("Failed to close file: %v", err)
 	}
 }
